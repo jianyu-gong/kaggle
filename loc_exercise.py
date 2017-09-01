@@ -1,5 +1,10 @@
 #coding=utf-8
 
+"""
+Load spark-csv package when submitting the work:
+bin/spark-submit --master spark://MacBook.local:7077 --packages com.databricks:spark-csv_2.11:1.5.0 loc_exercise.py
+"""
+
 from pyspark import SparkContext
 from pyspark.sql import SQLContext
 from pyspark.sql.types import FloatType
@@ -43,10 +48,14 @@ def scale(density):
     for x in density:
         new = (((x - min(density)) / (max(density) - min(density))) - 0.5) * 20
         density_scale.append(new)
-    print density_scale
+    print "The new scaled density is", density_scale
 
 
 if __name__ == "__main__":
+
+    """ Please the dataset path """
+    DataSample_path = "/Users/Desktop/work-samples-master/data-mr/data/DataSample.csv"
+    POI_path = "/Users/Desktop/work-samples-master/data-mr/data/POIList.csv"
 
     sc = SparkContext(appName="Location_Exercise")
     sqlContext = SQLContext(sc)
@@ -54,11 +63,11 @@ if __name__ == "__main__":
     """ Load DataSample.csv and POIList.csv into Dataframe """
     df = sqlContext.read.format('com.databricks.spark.csv')\
                         .options(header='true', inferschema='true')\
-                        .load("/Users/Jianyu/Desktop/work-samples-master/data-mr/data/DataSample.csv")
+                        .load(DataSample_path)
 
     df_poi = sqlContext.read.format('com.databricks.spark.csv')\
                             .options(header='true', inferschema='true')\
-                            .load("/Users/Jianyu/Desktop/work-samples-master/data-mr/data/POIList.csv")
+                            .load(POI_path)
 
     """ Cleaning: Remove the records that identical geoinfo and timest """
     df_data = df.dropDuplicates([' TimeSt','Latitude', 'Longitude'])
@@ -73,23 +82,30 @@ if __name__ == "__main__":
     min_distances = df_data_with_poi.groupBy('_ID').agg({'distance': 'min'})
 
     """ Assign each request in the `DataSample.csv` to one of those POI locations that has minimum distance to the request location """
-    df5 = df_data_with_poi\
+    df2 = df_data_with_poi\
           .join(min_distances, (df_data_with_poi['_ID'] == min_distances['_ID']) & (df_data_with_poi['distance'] == min_distances['MIN(distance)']))\
           .select(df_data_with_poi['_ID'], df_data_with_poi['POIID'], df_data_with_poi['distance'])
 
     """ As POI1 and POI2 have the same latitude and longitude, requests which are paired with POI1 or POI2 will be duplicated."""
-    df6 = df5.dropDuplicates(['_ID'])
-    print df6.collect()
+    df3 = df2.dropDuplicates(['_ID'])
+    print df3.collect()
 
     """ Find the mean and standard deviation of minimum distance """
-    summary = df6.describe(['distance']).collect()
+    summary = df3.describe(['distance']).collect()
 
     mean = summary[1][1]
     stddev = summary[2][1]
 
+    print "The mean of minimum distance is", mean
+    print "The standard deviation of minimum distance is", stddev
+
+    """ Remove the outlier - Details can be found in text file"""
+
+    df4 = df3.filter(df3['distance'] < 4000)
+
     """ Find the radius and count for each POI """
-    radius = df6.groupBy('POIID').agg({'distance': 'max'}).collect()
-    record_count = df6.groupBy(['POIID']).count().collect()
+    radius = df4.groupBy('POIID').agg({'distance': 'max'}).collect()
+    record_count = df4.groupBy(['POIID']).count().collect()
 
     poi1_radius = radius[0][1]
     poi1_count = record_count[0][1]
